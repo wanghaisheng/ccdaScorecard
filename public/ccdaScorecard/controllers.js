@@ -1,4 +1,4 @@
-angular.module('ccdaScorecard', ['ngResource'], function($routeProvider, $locationProvider){
+angular.module('ccdaScorecard', ['ui.bootstrap', 'ngResource'], function($routeProvider, $locationProvider){
 
   $routeProvider.when('/', {
     templateUrl:'/static/ccdaScorecard/templates/index.html',
@@ -10,9 +10,45 @@ angular.module('ccdaScorecard', ['ngResource'], function($routeProvider, $locati
     controller: 'MainController'
   }) 
 
+  $routeProvider.otherwise({
+    templateUrl:'/static/ccdaScorecard/templates/index.html',
+    controller: 'MainController'
+  }) 
+
   //  $locationProvider.html5Mode(true);
-  console.log("Started module");
 });
+
+angular.module('ccdaScorecard').filter('ccdas', function(){
+  return function(list) {
+    var ret = list.filter(function(entry){
+      return entry.path.match(/(xml)|(txt)/i);
+    });
+    return ret;
+  };
+});
+
+angular.module('ccdaScorecard').factory('GithubExamples', function($resource, $http, $q) {
+  var examples = {tree: []};
+
+  // pre-fetch list of examples on load
+  $http({method: 'GET', url: '/v1/examples/'}).success(function(data, status, headers, config){
+    examples.url = data.url;
+    examples.sha = data.sha;
+    examples.tree = data.tree;
+  });
+
+  return {
+    all: examples,
+    one: function(id){
+      var deferred = $q.defer();
+      $http({method: 'GET', url: '/v1/examples/'+id}).success( function(data, status, headers, config){
+        deferred.resolve(data);
+      });
+      return deferred.promise;
+    }
+  };
+});
+
 
 angular.module('ccdaScorecard').factory('Scorecard', function($resource, $http) {
 
@@ -51,7 +87,6 @@ angular.module('ccdaScorecard').factory('Scorecard', function($resource, $http) 
   Scorecard.getExample = function($scope) {
     $http({method: 'GET', url: '/static/ccdaScorecard/example.ccda.xml'})
     .success(function(data, status, headers, config) {
-      console.log("got example");
       $scope.example = data;
     });
     return "";
@@ -71,7 +106,6 @@ angular.module('ccdaScorecard').controller("ScoreController",
     });
 
     var rubric = $scope.rubric = Scorecard.rubrics[$scope.score.rubric];
-    console.log("r", rubric);
 
     $scope.cssClass = function(){
       var score = $scope.score.score;
@@ -86,30 +120,40 @@ angular.module('ccdaScorecard').controller("ScoreController",
 );
 
 angular.module('ccdaScorecard').controller("MainController",  
-  function($scope, Scorecard) {
+  function($scope, Scorecard, GithubExamples, $timeout) {
+
+    $scope.dropChoices = [{href: "#", text: "wdfa"}];
 
     $scope.stats = Scorecard.stats;
     $scope.rubrics = Scorecard.rubrics;
     $scope.example = Scorecard.getExample($scope);
-    $scope.submission = "";
-
+    $scope.submission = $scope.current = "";
     $scope.getScore = function(){
-
-      console.log("requesting", $scope);
       $scope.scoring = true;
       var toSubmit = $scope.submission.trim();
 
       $scope.scores =[];
       $scope.errors = [];
-      
-      Scorecard.request({
-        isExample: (toSubmit === $scope.example.trim())
-      }, toSubmit, $scope.scores, $scope.errors );
+
+      Scorecard.request({ isExample:(
+          toSubmit === $scope.example.trim() || 
+          toSubmit === $scope.current.trim()
+        )}, toSubmit, $scope.scores, $scope.errors );
 
     };
 
     $scope.expandAllScores = function(){$scope.$broadcast("expandRequest", true);};
     $scope.collapseAllScores = function(){$scope.$broadcast("expandRequest", false);};
+    $scope.githubFiles = GithubExamples.all;
+    $scope.pickExample = function(example){
+      $scope.submission = "fetching sample...";
+
+      GithubExamples.one(example.sha).then(function(content){
+        $scope.submission = $scope.current = content;
+        $scope.getScore();
+      });
+
+    };
 
     function parseSections(scoreList){
       var sections = {}, ret = [];
@@ -179,6 +223,16 @@ angular.module('ccdaScorecard').controller("MainController",
     $scope.showDetails = function(score){
       score.showDetails = true;
     };
+
+    if(window.defaultCcda !== null){
+      $scope.submission = decodeURIComponent(window.defaultCcda);
+      $scope.$watch("loading()",function(newVal){
+      console.log("loading", newVal);
+       if (newVal === true)
+        $scope.getScore();
+      });
+    }
+
 
   }
 );
@@ -269,7 +323,6 @@ angular.module('ccdaScorecard')
       //      element.text("");
       // watch the expression, and update the UI on change.
       scope.$watch('distribution', function(value, oldval) {
-        console.log("REplacing", element, element.text());
         makeHistogram(value);
       }, false);
 
@@ -305,7 +358,7 @@ angular.module('ccdaScorecard')
     scope.$watch(attributes.scrollIf, function(v, old){
       if (scope.$eval(attributes.scrollIf)) {
         window.setTimeout(function(){
-          element.ScrollTo({duration: 200, offsetTop: 30})
+          $.scrollTo(element, 200, {axis: 'y', offset: -50});
         }, 0);
       }
     });
